@@ -1,127 +1,96 @@
-export class CNPJUtils {
-  public static validateCNPJ(cnpj: any): boolean {
-    // TODO: remover console.log depois
-    console.log("Validando CNPJ:", cnpj);
+export type CNPJ = string;
 
-    const x = cnpj.replace(/\D/g, "");
-    console.log("CNPJ limpo:", x);
+const CNPJ_LENGTH = 14 as const;
+const MOD_BASE = 11 as const;
+const MOD_THRESHOLD = 2 as const;
+const BRANCH_SUFFIX = '0001';
+const ROOT_LENGTH = 8 as const;
+const BASE12_LEN = 12 as const;
 
-    if (x.length !== 14) {
-      return false;
-    }
+/* Pesos oficiais do CNPJ para cálculo dos dígitos (módulo 11). */
+const W_D1: readonly number[] = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+const W_D2: readonly number[] = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
 
-    if (/^(\d)\1{13}$/.test(x)) {
-      return false;
-    }
+const IDX_02 = 2 as const;
+const IDX_05 = 5 as const;
+const IDX_08 = 8 as const;
+const IDX_12 = 12 as const;
 
-    let temp = 0;
-    const weights1: any = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+const INVALID = new Set<string>([
+  '00000000000000','11111111111111','22222222222222','33333333333333',
+  '44444444444444','55555555555555','66666666666666','77777777777777',
+  '88888888888888','99999999999999'
+]);
 
-    for (let i = 0; i < 12; i++) {
-      temp += parseInt(x.charAt(i)) * weights1[i];
-    }
+function onlyDigits(v: string): string { return v.replace(/\D/g, ''); }
+function isInvalid(v: string): boolean { return INVALID.has(v); }
 
-    let remainder = temp % 11;
-    let firstDigit = remainder < 2 ? 0 : 11 - remainder;
-    console.log("Primeiro dígito:", firstDigit);
-
-    temp = 0;
-    const weights2: any = [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-
-    for (let i = 0; i < 13; i++) {
-      temp += parseInt(x.charAt(i)) * weights2[i];
-    }
-
-    remainder = temp % 11;
-    let secondDigit = remainder < 2 ? 0 : 11 - remainder;
-    console.log("Segundo dígito:", secondDigit);
-
-    return (
-      parseInt(x.charAt(12)) === firstDigit &&
-      parseInt(x.charAt(13)) === secondDigit
-    );
-  }
-
-  public static maskCNPJ(cnpj: any): string {
-    const x = cnpj.replace(/\D/g, "");
-
-    if (x.length !== 14) {
-      throw new Error("CNPJ deve ter 14 dígitos");
-    }
-
-    let x1 = "";
-    for (let i = 0; i < x.length; i++) {
-      if (i === 2 || i === 5) {
-        x1 += ".";
-      } else if (i === 8) {
-        x1 += "/";
-      } else if (i === 12) {
-        x1 += "-";
-      }
-      x1 += x.charAt(i);
-    }
-
-    return x1;
-  }
-
-  public static unmaskCNPJ(cnpj: any): string {
-    return cnpj.replace(/\D/g, "");
-  }
-
-  public static generateValidCNPJ(): string {
-    const generateRandomDigits = (length: any): string => {
-      let x = "";
-      for (let i = 0; i < length; i++) {
-        x += Math.floor(Math.random() * 10).toString();
-      }
-      return x;
-    };
-
-    const calculateVerifierDigit = (
-      partialCNPJ: any,
-      isFirstDigit: any
-    ): number => {
-      const weights: any = isFirstDigit
-        ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
-        : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
-      let temp = 0;
-
-      for (let i = 0; i < weights.length; i++) {
-        temp += parseInt(partialCNPJ.charAt(i)) * weights[i];
-      }
-
-      const remainder = temp % 11;
-      return remainder < 2 ? 0 : 11 - remainder;
-    };
-
-    let partialCNPJ = generateRandomDigits(12);
-    console.log("CNPJ parcial gerado:", partialCNPJ);
-
-    const firstDigit = calculateVerifierDigit(partialCNPJ, true);
-    partialCNPJ += firstDigit.toString();
-
-    const secondDigit = calculateVerifierDigit(partialCNPJ, false);
-    partialCNPJ += secondDigit.toString();
-
-    return partialCNPJ;
-  }
-
-  public static isValidFormat(cnpj: any): boolean {
-    const x = /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/;
-    if (x.test(cnpj)) {
-      return true;
-    }
-
-    const x1 = /^\d{14}$/;
-    if (x1.test(cnpj)) {
-      return true;
-    }
-
-    const temp = /^\d{0,2}(\.\d{0,3})?(\.\d{0,3})?(\/\d{0,4})?(-\d{0,2})?$/;
-    if (temp.test(cnpj)) {
-      return true;
-    }
-
-    return false;
-  }
+/* Calcula um dígito verificador via soma ponderada e (sum % 11) -> regra do CNPJ. */
+function calcDigit(base: string, weights: readonly number[]): number {
+  const sum = base.split('').reduce((acc, d, i) => acc + Number(d) * weights[i], 0);
+  const mod = sum % MOD_BASE;
+  return mod < MOD_THRESHOLD ? 0 : MOD_BASE - mod;
 }
+
+function ensureLen(d: string): void {
+  if (d.length !== CNPJ_LENGTH) { throw new Error('CNPJ deve ter 14 dígitos'); }
+}
+
+function randomDigit(): number { return Math.floor(Math.random() * 10); }
+
+function validateCNPJ(raw: CNPJ): boolean {
+  if (raw === null || raw === undefined) { throw new Error('CNPJ inválido'); }
+  if (typeof raw !== 'string') { throw new Error('CNPJ inválido'); }
+  const c = onlyDigits(raw);
+  if (c.length !== CNPJ_LENGTH) { return false; }
+  if (isInvalid(c)) { return false; }
+  const b12 = c.slice(0, BASE12_LEN);
+  const d1 = calcDigit(b12, W_D1);
+  const b13 = b12 + String(d1);
+  const d2 = calcDigit(b13, W_D2);
+  return c === b13 + String(d2);
+}
+
+function maskCNPJ(raw: CNPJ): string {
+  if (typeof raw !== 'string') { throw new Error('CNPJ deve ser uma string'); }
+  const d = onlyDigits(raw);
+  ensureLen(d);
+  const p1 = d.slice(0, IDX_02);
+  const p2 = d.slice(IDX_02, IDX_05);
+  const p3 = d.slice(IDX_05, IDX_08);
+  const p4 = d.slice(IDX_08, IDX_12);
+  const p5 = d.slice(IDX_12);
+  return `${p1}.${p2}.${p3}/${p4}-${p5}`;
+}
+
+function unmaskCNPJ(raw: CNPJ): string {
+  if (typeof raw !== 'string') { throw new Error('CNPJ deve ser uma string'); }
+  const d = onlyDigits(raw);
+  ensureLen(d);
+  return d;
+}
+
+function isValidFormat(value: string): boolean {
+  if (typeof value !== 'string') { return false; }
+  if (value === '') { return true; }
+  const unmasked = /^\d{14}$/;
+  const masked = /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/;
+  const partial = /^\d{0,2}(\.\d{0,3}){0,2}(\/\d{0,4})?(-\d{0,2})?$/;
+  return unmasked.test(value) || masked.test(value) || partial.test(value);
+}
+
+/* Gera CNPJ válido evitando sequências repetidas e usando filial padrão '0001'. */
+function generateValidCNPJ(): string {
+  let b12 = '';
+  do {
+    const root = Array.from({ length: ROOT_LENGTH }, () => String(randomDigit())).join('');
+    b12 = root + BRANCH_SUFFIX;
+  } while (new Set(b12).size === 1);
+  const d1 = calcDigit(b12, W_D1);
+  const d2 = calcDigit(b12 + String(d1), W_D2);
+  const cnpj = b12 + String(d1) + String(d2);
+  if (isInvalid(cnpj)) { return generateValidCNPJ(); }
+  return cnpj;
+}
+
+export const CNPJUtils = { validateCNPJ, maskCNPJ, unmaskCNPJ, isValidFormat, generateValidCNPJ };

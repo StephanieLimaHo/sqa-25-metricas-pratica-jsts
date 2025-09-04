@@ -1,64 +1,41 @@
-export function validatePassword(password: any): boolean {
-  // TODO: remover console.log depois
-  console.log("Validando senha:", password);
+const MIN = 8 as const;
+const MAX = 128 as const;
 
-  const x: any = {
-    minLength: 8,
-    maxLength: 128,
-    requireUppercase: true,
-    requireLowercase: true,
-    requireNumbers: true,
-    requireSymbols: true,
-    preventSequential: true,
-    preventRepeating: true,
-  };
+/* Exige maiúscula, minúscula, dígito e símbolo (sem espaço). */
+function hasComposition(pwd: string): boolean {
+  const rules = [/[A-Z]/, /[a-z]/, /\d/, /[^A-Za-z0-9\s]/];
+  return rules.every((r) => r.test(pwd));
+}
 
-  const x1: string[] = [];
+/* Bloqueia runs como 'aaa' ou '111' (3+ repetidos). */
+function hasRepeatingRun(pwd: string): boolean { return /(.)\1{2,}/.test(pwd); }
 
-  if (password.length < x.minLength) {
-    x1.push(`Senha deve ter pelo menos ${x.minLength} caracteres`);
+/* Bloqueia sequências numéricas óbvias (ex.: 123, 456...). */
+function hasNumericSequence(pwd: string): boolean {
+  const digits = pwd.replace(/\D/g, '');
+  for (let i = 0; i + 2 < digits.length; i += 1) {
+    const a = digits.charCodeAt(i);
+    const b = digits.charCodeAt(i + 1);
+    const c = digits.charCodeAt(i + 2);
+    const asc = b === a + 1 && c === b + 1;
+    const desc = b === a - 1 && c === b - 1;
+    if (asc || desc) { return true; }
   }
+  return false;
+}
 
-  if (x.maxLength && password.length > x.maxLength) {
-    x1.push(`Senha deve ter no máximo ${x.maxLength} caracteres`);
-  }
+function hasForbiddenPatterns(pwd: string): boolean { return /abc|qwe|asd|zxc/i.test(pwd); }
 
-  if (x.requireUppercase && !/[A-Z]/.test(password)) {
-    x1.push("Senha deve conter pelo menos uma letra maiúscula");
-  }
-
-  if (x.requireLowercase && !/[a-z]/.test(password)) {
-    x1.push("Senha deve conter pelo menos uma letra minúscula");
-  }
-
-  if (x.requireNumbers && !/\d/.test(password)) {
-    x1.push("Senha deve conter pelo menos um número");
-  }
-
-  if (
-    x.requireSymbols &&
-    !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
-  ) {
-    x1.push("Senha deve conter pelo menos um caractere especial");
-  }
-
-  if (x.preventSequential) {
-    const temp: any = [/123/, /abc/, /qwe/, /asd/, /zxc/];
-
-    for (const pattern of temp) {
-      if (pattern.test(password.toLowerCase())) {
-        x1.push("Senha não deve conter sequências");
-        break;
-      }
-    }
-  }
-
-  if (x.preventRepeating) {
-    if (/(.)\1{2,}/.test(password)) {
-      x1.push("Senha não deve ter caracteres repetidos em excesso");
-    }
-  }
-
-  console.log("Violações encontradas:", x1.length);
-  return x1.length === 0;
+export function validatePassword(password: string): boolean {
+  if (password === null || password === undefined) { throw new Error('Senha inválida'); }
+  if (typeof password !== 'string') { throw new Error('Senha inválida'); }
+  const pwd = password;
+  const validators = [
+    () => pwd.length >= MIN && pwd.length <= MAX,
+    () => hasComposition(pwd),
+    () => !hasRepeatingRun(pwd),
+    () => !hasNumericSequence(pwd),
+    () => !hasForbiddenPatterns(pwd)
+  ];
+  return validators.every((fn) => fn());
 }

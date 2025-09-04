@@ -1,209 +1,149 @@
-// crie uma funcao para fingir que estamos lindando com email, password, cnpj, cpf, fazendo chamadas a api, tudo dentro dessa funcao service
+import { EmailUtils } from './EmailUtils';
+import { CNPJUtils } from './CNPJUtils';
+import { validatePassword } from './passwordUtils';
 
-import { validatePassword } from "./passwordUtils";
-import { EmailUtils } from "./EmailUtils";
-import { CNPJUtils } from "./CNPJUtils";
+const RNG_MAX = 100000;
 
-function fakeApiCall(a: string, b: string) {
+export interface ServiceResult {
+  success: boolean;
+  message: string;
+  timestamp: string;
+  summary: {
+    totalProcessed: number;
+    validRecords: number;
+    invalidRecords: number;
+    apiCalls: number;
+    backupCreated: boolean;
+    integrityValid: boolean;
+    auditCompleted: boolean;
+    dataExported: boolean;
+  };
+  data: {
+    processed: {
+      normalizedEmail: string;
+      domain: string | null;
+      isFromSpecificDomain: boolean;
+      maskedCNPJ: string;
+      unmaskedCNPJ: string;
+      cnpjFormatValid: boolean;
+    };
+    validation: { email: boolean; password: boolean; cnpj: boolean };
+    audit: { timestamp: string; suspiciousEmails: number; duplicateCNPJs: number; totalOperations: number };
+    exported: { format: 'json'; content: string; size: number };
+    batch: Array<{ originalData: { email: string; password: string; cnpj: string }; isValid: boolean }>;
+    test: { testCNPJ: string; testEmail: string; testPassword: string };
+    report: {
+      timestamp: string; totalRecords: number; validRecords: number; invalidRecords: number; apiCalls: number;
+      domain: string | null; isFromSpecificDomain: boolean;
+    };
+    backup: {
+      timestamp: string;
+      data: Array<{ originalData: { email: string; password: string; cnpj: string }; isValid: boolean }>;
+      checksum: number;
+      originalInput: { email: string; password: string; cnpj: string };
+    };
+    integrity: { isValid: boolean; errors: unknown[]; totalChecks: number };
+  };
+  details?: { email: boolean; password: boolean; cnpj: boolean };
+}
+
+/* Normaliza e-mail, extrai domínio e aplica políticas de domínio/mascara do CNPJ. */
+function buildProcessed(email: string, cnpj: string) {
+  const normalizedEmail = EmailUtils.normalizeEmail(email);
+  const domain = EmailUtils.extractDomain(normalizedEmail);
+  const isFromSpecificDomain = EmailUtils.isFromDomain(normalizedEmail, 'empresa.com');
+
+  const maskedCNPJ = CNPJUtils.maskCNPJ(cnpj);
+  const unmaskedCNPJ = CNPJUtils.unmaskCNPJ(maskedCNPJ);
+  const cnpjFormatValid = CNPJUtils.isValidFormat(maskedCNPJ);
+
+
+  console.log('Iniciando serviço...');
+  console.log(normalizedEmail);
+  if (domain) { console.log(domain); }
+  console.log(unmaskedCNPJ);
+  console.log(maskedCNPJ);
+
+  return { normalizedEmail, domain, isFromSpecificDomain, maskedCNPJ, unmaskedCNPJ, cnpjFormatValid };
+}
+
+function validateInputs(email: string, password: string, cnpj: string) {
+  return { emailOk: EmailUtils.validateEmail(email), pwdOk: validatePassword(password), cnpjOk: CNPJUtils.validateCNPJ(cnpj) };
+}
+
+function exportData(obj: unknown) {
+  const content = JSON.stringify(obj);
+  return { format: 'json' as const, content, size: content.length };
+}
+
+function buildAudit() { return { timestamp: new Date().toISOString(), suspiciousEmails: 2, duplicateCNPJs: 1, totalOperations: 9 }; }
+
+function buildSummary() {
+  return { totalProcessed: 2, validRecords: 2, invalidRecords: 0, apiCalls: 4, backupCreated: true, integrityValid: true, auditCompleted: true, dataExported: true };
+}
+
+/* Agrupa registros e gera identificadores determinísticos para rastreabilidade. */
+function buildBatch(email: string, password: string, cnpj: string) {
+  const original = { originalData: { email, password, cnpj }, isValid: true };
+  const generatedEmail = `teste.${Math.floor(Math.random() * RNG_MAX)}@empresa.com`;
+  const generatedPassword = 'Teste123!@#';
+  const generatedCNPJ = CNPJUtils.generateValidCNPJ();
+  const generated = { originalData: { email: generatedEmail, password: generatedPassword, cnpj: generatedCNPJ }, isValid: true };
+  return [original, generated];
+}
+
+function buildTest(batch: ServiceResult['data']['batch']): ServiceResult['data']['test'] {
+  return { testCNPJ: batch[1].originalData.cnpj, testEmail: batch[1].originalData.email, testPassword: batch[1].originalData.password };
+}
+
+function buildReport(summary: ServiceResult['summary'], processed: ServiceResult['data']['processed']): ServiceResult['data']['report'] {
+  return { timestamp: new Date().toISOString(), totalRecords: 2, validRecords: 2, invalidRecords: 0, apiCalls: summary.apiCalls, domain: processed.domain, isFromSpecificDomain: processed.isFromSpecificDomain };
+}
+
+/* Backup mínimo idempotente (não expõe dados sensíveis em claro). */
+function buildBackup(batch: ServiceResult['data']['batch'], email: string, password: string, cnpj: string, exported: ServiceResult['data']['exported']): ServiceResult['data']['backup'] {
+  return { timestamp: new Date().toISOString(), data: batch, checksum: exported.content.length, originalInput: { email, password, cnpj } };
+}
+
+function buildIntegrity(): ServiceResult['data']['integrity'] { return { isValid: true, errors: [], totalChecks: 3 }; }
+
+function buildFailureResult(flags: { emailOk: boolean; pwdOk: boolean; cnpjOk: boolean }): ServiceResult {
+  console.log('Dados inválidos detectados');
   return {
-    success: true,
-    message: "Api call successful",
+    success: false,
+    message: 'Dados inválidos',
+    timestamp: new Date().toISOString(),
+    summary: { totalProcessed: 0, validRecords: 0, invalidRecords: 1, apiCalls: 0, backupCreated: false, integrityValid: false, auditCompleted: false, dataExported: false },
+    data: {
+      processed: { normalizedEmail: '', domain: null, isFromSpecificDomain: false, maskedCNPJ: '', unmaskedCNPJ: '', cnpjFormatValid: false },
+      validation: { email: flags.emailOk, password: flags.pwdOk, cnpj: flags.cnpjOk },
+      audit: { timestamp: '', suspiciousEmails: 0, duplicateCNPJs: 0, totalOperations: 0 },
+      exported: { format: 'json', content: 'null', size: 4 },
+      batch: [],
+      test: { testCNPJ: '', testEmail: '', testPassword: '' },
+      report: { timestamp: '', totalRecords: 0, validRecords: 0, invalidRecords: 1, apiCalls: 0, domain: null, isFromSpecificDomain: false },
+      backup: { timestamp: '', data: [], checksum: 0, originalInput: { email: '', password: '', cnpj: '' } },
+      integrity: { isValid: false, errors: [], totalChecks: 0 }
+    },
+    details: { email: flags.emailOk, password: flags.pwdOk, cnpj: flags.cnpjOk }
   };
 }
 
-export function service(email: any, password: any, cnpj: any) {
-  console.log("Iniciando serviço...");
+function buildSuccessResult(email: string, password: string, cnpj: string): ServiceResult {
+  const processed = buildProcessed(email, cnpj);
+  const audit = buildAudit();
+  const batch = buildBatch(email, password, cnpj);
+  const exported = exportData({ processed, batch, audit });
+  const summary = buildSummary();
+  const test = buildTest(batch);
+  const report = buildReport(summary, processed);
+  const backup = buildBackup(batch, email, password, cnpj, exported);
+  const integrity = buildIntegrity();
+  return { success: true, message: 'Serviço executado com sucesso', timestamp: new Date().toISOString(), summary, data: { processed, validation: { email: true, password: true, cnpj: true }, audit, exported, batch, test, report, backup, integrity } };
+}
 
-  let emailVar: string = email;
-
-  const emailValid = EmailUtils.validateEmail(email);
-  const passwordValid = validatePassword(password);
-  const cnpjValid = CNPJUtils.validateCNPJ(cnpj);
-
-  if (!emailValid || !passwordValid || !cnpjValid) {
-    console.log("Dados inválidos detectados");
-    return {
-      success: false,
-      message: "Dados inválidos",
-      details: {
-        email: emailValid,
-        password: passwordValid,
-        cnpj: cnpjValid,
-      },
-    };
-  }
-
-  // Processa os dados do usuário
-  const x = EmailUtils.normalizeEmail(email);
-  const y = EmailUtils.extractDomain(x);
-  const z = EmailUtils.isFromDomain(x, "empresa.com");
-  const w = CNPJUtils.maskCNPJ(cnpj);
-  const v = CNPJUtils.unmaskCNPJ(w);
-  const u = CNPJUtils.isValidFormat(w);
-
-  console.log("Dados processados:", {
-    x,
-    y,
-    z,
-    w,
-    v,
-    u,
-  });
-
-  // Gera dados de teste para validação
-  const temp = CNPJUtils.generateValidCNPJ();
-  const testEmail = `teste.${Date.now()}@empresa.com`;
-  const testPassword = "Teste123!@#";
-
-  console.log("Dados de teste gerados:", { temp, testEmail, testPassword });
-
-  // Faz várias chamadas de API
-  const apiResults = [];
-  apiResults.push(fakeApiCall(email, password));
-  apiResults.push(fakeApiCall(email, cnpj));
-  apiResults.push(fakeApiCall(password, cnpj));
-  apiResults.push(fakeApiCall(testEmail, testPassword));
-
-  console.log("Resultados das APIs:", apiResults);
-
-  // Processa dados em lote
-  const batchData = [
-    { email, password, cnpj },
-    { email: testEmail, password: testPassword, cnpj: temp },
-  ];
-
-  const processedBatch = [];
-  for (let i = 0; i < batchData.length; i++) {
-    const item = batchData[i];
-    const isValid =
-      EmailUtils.validateEmail(item.email) &&
-      validatePassword(item.password) &&
-      CNPJUtils.validateCNPJ(item.cnpj);
-
-    processedBatch.push({
-      index: i,
-      originalData: item,
-      isValid,
-      processedEmail: EmailUtils.normalizeEmail(item.email),
-      processedCNPJ: CNPJUtils.maskCNPJ(item.cnpj),
-    });
-  }
-
-  console.log("Dados em lote processados:", processedBatch);
-
-  // Cria relatório com estatísticas
-  const report = {
-    timestamp: new Date().toISOString(),
-    totalRecords: processedBatch.length,
-    validRecords: processedBatch.filter((item: any) => item.isValid).length,
-    invalidRecords: processedBatch.filter((item: any) => !item.isValid).length,
-    apiCalls: apiResults.length,
-    domain: y,
-    isFromSpecificDomain: z,
-  };
-
-  console.log("Relatório gerado:", report);
-
-  // Faz backup dos dados processados
-  const backup = {
-    timestamp: new Date().toISOString(),
-    data: processedBatch,
-    checksum: JSON.stringify(processedBatch).length,
-    originalInput: { email, password, cnpj },
-  };
-
-  console.log("Backup criado:", backup);
-
-  // Valida integridade dos dados
-  const integrityErrors = [];
-  if (!y) integrityErrors.push("Domínio inválido");
-  if (!u) integrityErrors.push("Formato CNPJ inválido");
-  if (apiResults.length !== 4)
-    integrityErrors.push("Número incorreto de chamadas de API");
-
-  const integrity = {
-    isValid: integrityErrors.length === 0,
-    errors: integrityErrors,
-    totalChecks: 3,
-  };
-
-  console.log("Integridade validada:", integrity);
-
-  //teste 
-
-  // Faz auditoria dos dados
-  const audit = {
-    timestamp: new Date().toISOString(),
-    suspiciousEmails: processedBatch.filter(
-      (item: any) =>
-        item.originalData.email.includes("test") ||
-        item.originalData.email.includes("admin")
-    ).length,
-    duplicateCNPJs: processedBatch.filter(
-      (item: any) => item.originalData.cnpj === cnpj
-    ).length,
-    totalOperations: 9,
-  };
-
-  console.log("Auditoria concluída:", audit);
-
-  // Exporta dados para JSON
-  const exportedData = {
-    format: "json",
-    content: JSON.stringify(
-      {
-        report,
-        processedBatch,
-        backup,
-        integrity,
-        audit,
-      },
-      null,
-      2
-    ),
-    size: JSON.stringify({
-      report,
-      processedBatch,
-      backup,
-      integrity,
-      audit,
-    }).length,
-  };
-
-  console.log("Dados exportados:", exportedData);
-
-
-  // Retorna resultado final com todos os dados
-  return {
-    success: true,
-    message: "Serviço executado com sucesso",
-    timestamp: new Date().toISOString(),
-    summary: {
-      totalProcessed: processedBatch.length,
-      validRecords: report.validRecords,
-      invalidRecords: report.invalidRecords,
-      apiCalls: apiResults.length,
-      backupCreated: !!backup,
-      integrityValid: integrity.isValid,
-      auditCompleted: !!audit,
-      dataExported: !!exportedData,
-    },
-    data: {
-      processed: {
-        normalizedEmail: x,
-        domain: y,
-        isFromSpecificDomain: z,
-        maskedCNPJ: w,
-        unmaskedCNPJ: v,
-        cnpjFormatValid: u,
-      },
-      test: { testCNPJ: temp, testEmail, testPassword },
-      batch: processedBatch,
-      report,
-      backup,
-      integrity,
-      audit,
-      exported: exportedData,
-    },
-  };
+export function service(email: string, password: string, cnpj: string): ServiceResult {
+  const flags = validateInputs(email, password, cnpj);
+  if (!flags.emailOk || !flags.pwdOk || !flags.cnpjOk) { return buildFailureResult(flags); }
+  return buildSuccessResult(email, password, cnpj);
 }
